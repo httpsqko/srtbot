@@ -2,6 +2,12 @@ import telebot
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 from flask import Flask, request, Response
+import logging
+import os
+
+# Configura el logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Crea una aplicación Flask
 app = Flask(__name__)
@@ -13,12 +19,14 @@ bot = telebot.TeleBot(TOKEN)
 # Comando /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    logger.info("Received /start command")
     bot.reply_to(message, "¡Hola! Envíame un enlace de YouTube y te extraeré los subtítulos en formato SRT.")
 
 # Manejar mensajes con enlaces de YouTube
 @bot.message_handler(func=lambda message: 'youtube.com' in message.text or 'youtu.be' in message.text)
 def handle_youtube_link(message):
     try:
+        logger.info(f"Processing YouTube link: {message.text}")
         url = message.text
         video_id = extract_video_id(url)
         
@@ -29,7 +37,7 @@ def handle_youtube_link(message):
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es', 'en'])
         srt_content = transcript_to_srt(transcript)
         
-        srt_filename = f"/tmp/{video_id}.srt"  # Usamos /tmp para Vercel (sistema de archivos temporal)
+        srt_filename = f"/tmp/{video_id}.srt"
         with open(srt_filename, 'w', encoding='utf-8') as f:
             f.write(srt_content)
         
@@ -39,6 +47,7 @@ def handle_youtube_link(message):
         bot.reply_to(message, "¡Aquí tienes los subtítulos en formato SRT!")
     
     except Exception as e:
+        logger.error(f"Error processing YouTube link: {str(e)}")
         bot.reply_to(message, f"Ocurrió un error: {str(e)}. Asegúrate de que el video tenga subtítulos disponibles.")
 
 # Funciones auxiliares
@@ -70,21 +79,26 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 # Ruta del webhook como función serverless
-@app.route('http://srtbot.vercel.app/webhook', methods=['POST'])
+@app.route('https://srtbot.vercel.app//webhook', methods=['POST'])
 def webhook():
+    logger.info("Webhook endpoint called")
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
+        logger.info(f"Received update: {json_string}")
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
         return Response('OK', status=200)
     else:
+        logger.error("Invalid content type")
         return Response('Error', status=400)
 
-# Ruta raíz (opcional, para verificar que la API está viva)
+# Ruta raíz
 @app.route('/')
 def home():
+    logger.info("Home endpoint called")
     return "Bot activo"
 
-# Esto es necesario para Vercel (exporta la app como una función serverless)
+# Esto es necesario para Vercel
 def handler(request):
+    logger.info("Handler called")
     return app(request.environ, request.start_response)
