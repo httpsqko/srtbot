@@ -1,9 +1,14 @@
 import telebot
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
+from flask import Flask, request, Response
 
-# Reemplaza 'TU_TOKEN_AQUÍ' con el token que te dio BotFather
-bot = telebot.TeleBot('7689202374:AAHvUCW7GYODJ-hbXPPP4yLTHF2SlEyO4_0')
+# Crea una aplicación Flask
+app = Flask(__name__)
+
+# Configura el bot con tu token
+TOKEN = '7689202374:AAHvUCW7GYODJ-hbXPPP4yLTHF2SlEyO4_0'
+bot = telebot.TeleBot(TOKEN)
 
 # Comando /start
 @bot.message_handler(commands=['start'])
@@ -14,7 +19,6 @@ def send_welcome(message):
 @bot.message_handler(func=lambda message: 'youtube.com' in message.text or 'youtu.be' in message.text)
 def handle_youtube_link(message):
     try:
-        # Extraer el ID del video del enlace
         url = message.text
         video_id = extract_video_id(url)
         
@@ -22,18 +26,13 @@ def handle_youtube_link(message):
             bot.reply_to(message, "No pude encontrar un ID válido en el enlace. Asegúrate de enviar un enlace de YouTube correcto.")
             return
         
-        # Obtener los subtítulos
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es', 'en'])  # Prioriza español, luego inglés
-        
-        # Convertir a formato SRT
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es', 'en'])
         srt_content = transcript_to_srt(transcript)
         
-        # Guardar en un archivo SRT
-        srt_filename = f"{video_id}.srt"
+        srt_filename = f"/tmp/{video_id}.srt"  # Usamos /tmp para Vercel (sistema de archivos temporal)
         with open(srt_filename, 'w', encoding='utf-8') as f:
             f.write(srt_content)
         
-        # Enviar el archivo al usuario
         with open(srt_filename, 'rb') as srt_file:
             bot.send_document(message.chat.id, srt_file)
         
@@ -42,11 +41,11 @@ def handle_youtube_link(message):
     except Exception as e:
         bot.reply_to(message, f"Ocurrió un error: {str(e)}. Asegúrate de que el video tenga subtítulos disponibles.")
 
-# Función para extraer el ID del video de YouTube
+# Funciones auxiliares
 def extract_video_id(url):
     patterns = [
-        r'(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})',  # youtube.com/watch?v=ID o youtu.be/ID
-        r'(?:embed/)([a-zA-Z0-9_-]{11})'           # youtube.com/embed/ID
+        r'(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'(?:embed/)([a-zA-Z0-9_-]{11})'
     ]
     for pattern in patterns:
         match = re.search(pattern, url)
@@ -54,7 +53,6 @@ def extract_video_id(url):
             return match.group(1)
     return None
 
-# Función para convertir los subtítulos a formato SRT
 def transcript_to_srt(transcript):
     srt_lines = []
     for i, item in enumerate(transcript, start=1):
@@ -64,7 +62,6 @@ def transcript_to_srt(transcript):
         srt_lines.append(f"{i}\n{start_time} --> {end_time}\n{text}\n")
     return '\n'.join(srt_lines)
 
-# Función para formatear el tiempo al estilo SRT (00:00:00,000)
 def format_time(seconds):
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
@@ -72,5 +69,22 @@ def format_time(seconds):
     millis = int((seconds % 1) * 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
-# Iniciar el bot
-bot.polling()
+# Ruta del webhook como función serverless
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return Response('OK', status=200)
+    else:
+        return Response('Error', status=400)
+
+# Ruta raíz (opcional, para verificar que la API está viva)
+@app.route('/')
+def home():
+    return "Bot activo"
+
+# Esto es necesario para Vercel (exporta la app como una función serverless)
+def handler(request):
+    return app(request.environ, request.start_response)
