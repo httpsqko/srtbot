@@ -1,0 +1,2 @@
+pyTelegramBotAPI
+youtube_transcript_api
