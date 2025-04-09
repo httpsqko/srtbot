@@ -70,7 +70,7 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 # Ruta del webhook como función serverless
-@app.route('/webhook', methods=['POST'])
+@app.route('http://srtbot.vercel.app/webhook', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
